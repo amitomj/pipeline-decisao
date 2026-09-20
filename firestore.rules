@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable, hardened global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Schema Validation Helper (called on create and update)
+    function isValidSavedResult(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.agentId is string && data.agentId.size() <= 50
+        && data.agentName is string && data.agentName.size() <= 100
+        && data.prompt is string && data.prompt.size() <= 10000
+        && data.result is string && data.result.size() <= 100000
+        && data.userId is string && data.userId == request.auth.uid
+        && data.savedAt is timestamp
+        && (!data.keys().contains('groundingLinks') || data.groundingLinks == null || data.groundingLinks is list);
+    }
+
+    // Saved Results collection match block
+    match /saved_results/{resultId} {
+      // Single get: restrict to owner, apply ID validation
+      allow get: if isSignedIn()
+        && isValidId(resultId)
+        && existing().userId == request.auth.uid;
+
+      // Secure List Queries: explicit owner evaluation, no ID check
+      allow list: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+
+      // Secure Create with full validation & exact keys
+      allow create: if isEmailVerified()
+        && isValidId(resultId)
+        && isValidSavedResult(incoming())
+        && incoming().keys().hasAll(['id', 'title', 'agentId', 'agentName', 'prompt', 'result', 'savedAt', 'userId'])
+        && (incoming().keys().size() == 8 || (incoming().keys().size() == 9 && incoming().keys().contains('groundingLinks')))
+        && incoming().savedAt == request.time;
+
+      // Secure Update with named changes constraint (Title change only)
+      allow update: if isEmailVerified()
+        && isValidId(resultId)
+        && isValidSavedResult(incoming())
+        && incoming().id == existing().id
+        && incoming().agentId == existing().agentId
+        && incoming().agentName == existing().agentName
+        && incoming().prompt == existing().prompt
+        && incoming().result == existing().result
+        && incoming().userId == existing().userId
+        && incoming().savedAt == existing().savedAt
+        && (!incoming().keys().contains('groundingLinks') || incoming().groundingLinks == existing().groundingLinks)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title']);
+
+      // Secure Delete
+      allow delete: if isSignedIn()
+        && isValidId(resultId)
+        && existing().userId == request.auth.uid;
+    }
+  }
+}

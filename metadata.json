@@ -1,0 +1,8 @@
+{
+  "name": "Agentes AI Orchestrator",
+  "description": "Orquestrador de tarefas com agentes jurídicos especializados (Google Gemini e Zhipu GLM) e pesquisa exclusiva no portal ATLAS CSM.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
